@@ -109,6 +109,8 @@ const AppContent: React.FC = () => {
   const [cmpAgentIdx, setCmpAgentIdx] = useState<number>(0);
   const [cmpModel1, setCmpModel1] = useState<string>("gemini-2.5-flash");
   const [cmpModel2, setCmpModel2] = useState<string>("gemini-2.5-flash-lite");
+  const [cmpPrompt1, setCmpPrompt1] = useState<string>(DEFAULT_AGENTS[0].user_prompt);
+  const [cmpPrompt2, setCmpPrompt2] = useState<string>(DEFAULT_AGENTS[0].user_prompt);
   const [cmpResult1, setCmpResult1] = useState<string>("");
   const [cmpResult2, setCmpResult2] = useState<string>("");
   const [cmpTime1, setCmpTime1] = useState<number>(0);
@@ -118,6 +120,7 @@ const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(DEFAULT_AGENTS[0].id);
+  const [showPreview, setShowPreview] = useState<boolean>(false);
 
   const t = TRANSLATIONS[lang];
   const currentTheme = FLOWER_THEMES[themeName] || FLOWER_THEMES["Cherry Blossom"];
@@ -235,21 +238,22 @@ const AppContent: React.FC = () => {
     if (!ocrText) return alert("No document text available. Please run OCR first.");
     
     const agent = agents[cmpAgentIdx];
-    const fullPrompt = `${agent.user_prompt}\n\n---\nCONTEXT:\n${ocrText}`;
-
+    
     setIsProcessing(true);
     try {
         // Model 1
+        const fullPrompt1 = `${cmpPrompt1}\n\n---\nCONTEXT:\n${ocrText}`;
         const t1 = performance.now();
-        const r1 = await callGemini(apiKey, cmpModel1, agent.system_prompt, fullPrompt, {
+        const r1 = await callGemini(apiKey, cmpModel1, agent.system_prompt, fullPrompt1, {
             temperature: agent.temperature, topP: agent.top_p, maxTokens: agent.max_tokens
         });
         setCmpTime1((performance.now() - t1)/1000);
         setCmpResult1(r1.text);
 
         // Model 2
+        const fullPrompt2 = `${cmpPrompt2}\n\n---\nCONTEXT:\n${ocrText}`;
         const t2 = performance.now();
-        const r2 = await callGemini(apiKey, cmpModel2, agent.system_prompt, fullPrompt, {
+        const r2 = await callGemini(apiKey, cmpModel2, agent.system_prompt, fullPrompt2, {
             temperature: agent.temperature, topP: agent.top_p, maxTokens: agent.max_tokens
         });
         setCmpTime2((performance.now() - t2)/1000);
@@ -276,6 +280,34 @@ const AppContent: React.FC = () => {
       } finally {
           setIsProcessing(false);
       }
+  };
+
+  const handleFormatNotes = async () => {
+    if (!apiKey) return alert("API Key required");
+    if (!reviewNotes.trim()) return alert("Please enter notes to format.");
+    setIsProcessing(true);
+    try {
+        const prompt = `Please format the following review notes into clean, organized Markdown.
+        
+        Guidelines:
+        1. Fix grammar and spelling errors.
+        2. Use proper headings (##, ###) to structure the content.
+        3. Use bullet points for lists.
+        4. Highlight key findings in **bold**.
+        5. Keep the original language.
+        
+        Notes:
+        ${reviewNotes}`;
+        
+        const response = await callGemini(apiKey, "gemini-2.5-flash", "You are an expert technical editor.", prompt, {
+            temperature: 0.3, topP: 0.95, maxTokens: 4000
+        });
+        setReviewNotes(response.text);
+    } catch(e) {
+        alert("Format failed: " + e);
+    } finally {
+        setIsProcessing(false);
+    }
   };
 
   // --- Render Helpers ---
@@ -752,30 +784,58 @@ const AppContent: React.FC = () => {
                                 <h3 className="font-bold flex items-center gap-2">
                                     <span>📝</span> Review Notes
                                 </h3>
-                                <button 
-                                    onClick={handleGenerateFollowUp}
-                                    disabled={isProcessing}
-                                    className="px-5 py-2 rounded-lg text-white text-xs font-bold uppercase tracking-wider shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5 disabled:opacity-50"
-                                    style={{ background: currentTheme.accent }}
-                                >
-                                    {isProcessing ? "Generating..." : "✨ Generate 20 Questions"}
-                                </button>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setShowPreview(!showPreview)}
+                                        className="px-4 py-2 rounded-lg bg-white/20 dark:bg-white/10 text-xs font-bold uppercase tracking-wider shadow hover:bg-white/30 transition-all flex items-center gap-2"
+                                    >
+                                        {showPreview ? "✏️ Edit Mode" : "👁️ Preview Mode"}
+                                    </button>
+                                    <button 
+                                        onClick={handleFormatNotes}
+                                        disabled={isProcessing}
+                                        className="px-4 py-2 rounded-lg text-white text-xs font-bold uppercase tracking-wider shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5 disabled:opacity-50"
+                                        style={{ background: currentTheme.primary }}
+                                    >
+                                        {isProcessing ? "Processing..." : "🪄 AI Format"}
+                                    </button>
+                                    <button 
+                                        onClick={handleGenerateFollowUp}
+                                        disabled={isProcessing}
+                                        className="px-5 py-2 rounded-lg text-white text-xs font-bold uppercase tracking-wider shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5 disabled:opacity-50"
+                                        style={{ background: currentTheme.accent }}
+                                    >
+                                        {isProcessing ? "Generating..." : "✨ Generate 20 Questions"}
+                                    </button>
+                                </div>
                             </div>
-                            <div className="flex-1 flex flex-col lg:flex-row">
-                                <textarea 
-                                    value={reviewNotes}
-                                    onChange={e => setReviewNotes(e.target.value)}
-                                    className="flex-1 p-6 bg-transparent border-none resize-none focus:outline-none font-mono text-sm leading-relaxed"
-                                    placeholder="Type your markdown notes here..."
-                                />
-                                <div className="w-px bg-gray-200 dark:bg-gray-700 hidden lg:block"></div>
-                                <div className="flex-1 p-8 bg-gray-50/50 dark:bg-black/20 overflow-y-auto prose dark:prose-invert max-w-none">
-                                    <h4 className="uppercase tracking-widest opacity-40 text-xs font-bold mb-6">Preview</h4>
+                            <div className="flex-1 flex flex-col lg:flex-row relative">
+                                <div className={`flex-1 flex flex-col transition-all duration-300 ${showPreview ? 'hidden' : ''}`}>
+                                    <textarea 
+                                        value={reviewNotes}
+                                        onChange={e => setReviewNotes(e.target.value)}
+                                        className="flex-1 p-6 bg-transparent border-none resize-none focus:outline-none font-mono text-sm leading-relaxed"
+                                        placeholder="Type your markdown notes here..."
+                                    />
+                                </div>
+                                {!showPreview && <div className="w-px bg-gray-200 dark:bg-gray-700 hidden lg:block"></div>}
+                                <div className={`flex-1 p-8 bg-gray-50/50 dark:bg-black/20 overflow-y-auto prose dark:prose-invert max-w-none transition-all duration-300 ${showPreview ? 'w-full' : ''}`}>
+                                    <h4 className={`uppercase tracking-widest opacity-40 text-xs font-bold mb-6 ${showPreview ? 'hidden' : 'block'}`}>Preview</h4>
                                     {reviewNotes.split('\n').map((line, i) => {
-                                        if (line.startsWith('# ')) return <h1 key={i} className="text-2xl font-bold mb-4 mt-6 pb-2 border-b">{line.replace('# ', '')}</h1>
-                                        if (line.startsWith('## ')) return <h2 key={i} className="text-xl font-bold mb-3 mt-5">{line.replace('## ', '')}</h2>
-                                        if (line.startsWith('- ')) return <li key={i} className="ml-4 list-disc my-1">{line.replace('- ', '')}</li>
-                                        return <p key={i} className="mb-2 opacity-90" dangerouslySetInnerHTML={{__html: line}}></p>
+                                        // Enhanced simple markdown parser for preview
+                                        let content = line;
+                                        // Bold
+                                        content = content.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+                                        // Italic
+                                        content = content.replace(/\*(.*?)\*/g, '<i>$1</i>');
+                                        
+                                        if (line.startsWith('# ')) return <h1 key={i} className="text-3xl font-bold mb-6 mt-8 pb-2 border-b" dangerouslySetInnerHTML={{__html: line.replace('# ', '')}} />
+                                        if (line.startsWith('## ')) return <h2 key={i} className="text-2xl font-bold mb-4 mt-6" dangerouslySetInnerHTML={{__html: line.replace('## ', '')}} />
+                                        if (line.startsWith('### ')) return <h3 key={i} className="text-xl font-bold mb-3 mt-5" dangerouslySetInnerHTML={{__html: line.replace('### ', '')}} />
+                                        if (line.startsWith('- ')) return <li key={i} className="ml-4 list-disc my-2 pl-1" dangerouslySetInnerHTML={{__html: content.replace('- ', '')}} />
+                                        if (line.startsWith('1. ')) return <li key={i} className="ml-4 list-decimal my-2 pl-1" dangerouslySetInnerHTML={{__html: content.replace('1. ', '')}} />
+                                        if (line.trim() === '') return <br key={i} />
+                                        return <p key={i} className="mb-2 opacity-90 leading-7" dangerouslySetInnerHTML={{__html: content}}></p>
                                     })}
                                 </div>
                             </div>
@@ -795,40 +855,78 @@ const AppContent: React.FC = () => {
                                  </div>
                              </div>
                              
-                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                                 <div>
-                                     <label className="block text-xs font-bold uppercase opacity-60 mb-2">Select Agent</label>
-                                     <select 
-                                         className="w-full p-3 rounded-xl bg-white/50 dark:bg-black/30 border-none shadow-sm outline-none"
-                                         value={cmpAgentIdx}
-                                         onChange={e => setCmpAgentIdx(parseInt(e.target.value))}
-                                     >
-                                         {agents.map((a, i) => <option key={a.id} value={i}>{a.name}</option>)}
-                                     </select>
+                             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-6">
+                                 <div className="space-y-4">
+                                     <div>
+                                         <label className="block text-xs font-bold uppercase opacity-60 mb-2">Select Agent Template</label>
+                                         <select 
+                                             className="w-full p-3 rounded-xl bg-white/50 dark:bg-black/30 border-none shadow-sm outline-none focus:ring-2"
+                                             style={{ '--tw-ring-color': currentTheme.primary } as any}
+                                             value={cmpAgentIdx}
+                                             onChange={e => {
+                                                 const idx = parseInt(e.target.value);
+                                                 setCmpAgentIdx(idx);
+                                                 setCmpPrompt1(agents[idx].user_prompt);
+                                                 setCmpPrompt2(agents[idx].user_prompt);
+                                             }}
+                                         >
+                                             {agents.map((a, i) => <option key={a.id} value={i}>{a.name}</option>)}
+                                         </select>
+                                     </div>
+                                     <div className="p-4 bg-white/30 dark:bg-black/10 rounded-xl text-sm opacity-70">
+                                         <p className="font-bold mb-1">Tip:</p>
+                                         <p>Select a base agent to populate prompts, then customize them for each model to test variations.</p>
+                                     </div>
                                  </div>
-                                 <div>
-                                     <label className="block text-xs font-bold uppercase opacity-60 mb-2">Model A</label>
-                                     <select 
-                                         className="w-full p-3 rounded-xl bg-white/50 dark:bg-black/30 border-none shadow-sm outline-none"
-                                         value={cmpModel1}
-                                         onChange={e => setCmpModel1(e.target.value)}
-                                     >
-                                         <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-                                         <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
-                                         <option value="gemini-1.5-pro">gemini-1.5-pro</option>
-                                     </select>
+                                 
+                                 <div className="space-y-4">
+                                     <div>
+                                         <label className="block text-xs font-bold uppercase opacity-60 mb-2 text-blue-500">Model A</label>
+                                         <select 
+                                             className="w-full p-3 rounded-xl bg-white/50 dark:bg-black/30 border-none shadow-sm outline-none focus:ring-2"
+                                             style={{ '--tw-ring-color': '#3B82F6' } as any}
+                                             value={cmpModel1}
+                                             onChange={e => setCmpModel1(e.target.value)}
+                                         >
+                                             <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                                             <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+                                             <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                                         </select>
+                                     </div>
+                                     <div>
+                                         <label className="block text-xs font-bold uppercase opacity-60 mb-2">Prompt A</label>
+                                         <textarea 
+                                             value={cmpPrompt1}
+                                             onChange={e => setCmpPrompt1(e.target.value)}
+                                             className="w-full h-48 p-3 rounded-xl bg-white/50 dark:bg-black/30 border-none shadow-inner text-xs font-mono focus:ring-2 outline-none resize-none"
+                                             style={{ '--tw-ring-color': '#3B82F6' } as any}
+                                         />
+                                     </div>
                                  </div>
-                                 <div>
-                                     <label className="block text-xs font-bold uppercase opacity-60 mb-2">Model B</label>
-                                     <select 
-                                         className="w-full p-3 rounded-xl bg-white/50 dark:bg-black/30 border-none shadow-sm outline-none"
-                                         value={cmpModel2}
-                                         onChange={e => setCmpModel2(e.target.value)}
-                                     >
-                                         <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-                                         <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
-                                         <option value="gemini-1.5-pro">gemini-1.5-pro</option>
-                                     </select>
+
+                                 <div className="space-y-4">
+                                     <div>
+                                         <label className="block text-xs font-bold uppercase opacity-60 mb-2 text-purple-500">Model B</label>
+                                         <select 
+                                             className="w-full p-3 rounded-xl bg-white/50 dark:bg-black/30 border-none shadow-sm outline-none focus:ring-2"
+                                             style={{ '--tw-ring-color': '#A855F7' } as any}
+                                             value={cmpModel2}
+                                             onChange={e => setCmpModel2(e.target.value)}
+                                         >
+                                             <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                                             <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+                                             <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                                         </select>
+                                     </div>
+                                     <div>
+                                         <label className="block text-xs font-bold uppercase opacity-60 mb-2">Prompt B</label>
+                                         <textarea 
+                                             value={cmpPrompt2}
+                                             onChange={e => setCmpPrompt2(e.target.value)}
+                                             className="w-full h-48 p-3 rounded-xl bg-white/50 dark:bg-black/30 border-none shadow-inner text-xs font-mono focus:ring-2 outline-none resize-none"
+                                             style={{ '--tw-ring-color': '#A855F7' } as any}
+                                         />
+                                     </div>
                                  </div>
                              </div>
                              
